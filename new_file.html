@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>修复版全导联心电图测量系统</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+    <style>
+        /* 保持原有样式不变 */
+        :root { font-size: 14px; }
+        body {
+            margin: 0;
+            padding: 1rem;
+            background: #f8f9fa;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        #container {
+            display: flex;
+            gap: 1.5rem;
+            flex-direction: row;
+        }
+        #controlPanel {
+            flex: 0 0 14rem;
+            background: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+        }
+        #ecgChart {
+            flex: 1;
+            height: 120vh;
+            min-width: 300px;
+            position: relative;
+        }
+        .measure-info {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            background: rgba(255,255,255,0.95);
+            padding: 1.5rem 1rem 1rem;
+            border-radius: 0.8rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 180px;
+            backdrop-filter: blur(2px);
+        }
+        .close-btn {
+            position: absolute;
+            right: 0.8rem;
+            top: 0.5rem;
+            cursor: pointer;
+            font-size: 1.4rem;
+            color: #666;
+            transition: color 0.2s;
+        }
+        .close-btn:hover { color: #333; }
+        #leadControls {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.8rem;
+        }
+        .lead-label {
+            display: flex;
+            align-items: center;
+            margin: 0.3rem 0;
+            cursor: pointer;
+        }
+        .measure-tag {
+            position: absolute;
+            background: rgba(231, 76, 60, 0.9);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            pointer-events: none;
+            transform: translateY(-50%);
+            white-space: nowrap;
+        }
+        #historyPanel {
+            position: fixed;
+            top: 1.5rem;
+            right: 1.5rem;
+            background: rgba(255,255,255,0.95);
+            padding: 1rem;
+            border-radius: 0.8rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .history-item {
+            margin: 0.3rem 0;
+            padding: 0.5rem;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .undo-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+        @media (max-width: 768px) {
+            #container { flex-direction: column; }
+            #controlPanel { flex: none; margin-bottom: 1rem; }
+            #ecgChart { height: 80vh; }
+            :root { font-size: 13px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 保持原有HTML结构不变 -->
+    <div id="container">
+        <div id="controlPanel">
+            <h3 style="margin:0 0 1rem 0; color: #2c3e50;">导联选择</h3>
+            <div id="leadControls"></div>
+        </div>
+        <div id="ecgChart"></div>
+    </div>
+    
+    <div class="measure-info" id="measureInfo" style="display: none">
+        <span class="close-btn" onclick="this.parentElement.style.display='none'">×</span>
+        <div style="margin-bottom: 0.5rem; color: #2c3e50; font-weight: 500;">测量结果</div>
+        <div>时间差: <span id="measureDuration">0</span>ms</div>
+        <div>振幅差: <span id="measureAmplitude">0</span>mV</div>
+    </div>
+
+    <div id="historyPanel" style="display: none">
+        <div style="margin-bottom: 0.5rem; font-weight: 500;">测量历史</div>
+        <div id="historyList"></div>
+        <button class="undo-btn" onclick="Measurement.undoLast()">撤销最后测量</button>
+    </div>
+
+<script>
+const CONFIG = {
+    dataLength: 800,
+    sampleRate: 4,
+    colors: {
+        normal: '#2980b9',
+        measureLine: '#e74c3c',
+        gridLine: '#dcdde1'
+    },
+    leadConfig: {
+        'I':    { amp: 1.2, interval: 800 },
+        'II':   { amp: 1.5, interval: 800 },
+        'III':  { amp: 1.0, interval: 800 },
+        'aVR':  { amp: -0.8, interval: 800 },
+        'aVL':  { amp: 0.6, interval: 800 },
+        'aVF':  { amp: 1.3, interval: 800 },
+        'V1':   { amp: 0.9, interval: 800 },
+        'V2':   { amp: 1.1, interval: 800 },
+        'V3':   { amp: 1.4, interval: 800 },
+        'V4':   { amp: 1.6, interval: 800 },
+        'V5':   { amp: 1.3, interval: 800 },
+        'V6':   { amp: 1.0, interval: 800 }
+    }
+};
+
+const AppState = {
+    ecgChart: null,
+    measurePoints: [],
+    leadStatus: Object.fromEntries(Object.keys(CONFIG.leadConfig).map(lead => [lead, true])),
+    
+    init() {
+        this.initChart();
+        this.bindEvents();
+        this.renderLeadControls();
+        Measurement.init();
+    },
+    
+    initChart() {
+        this.ecgChart = echarts.init(document.getElementById('ecgChart'));
+        this.ecgChart.on('click', params => Measurement.handleChartClick(params));
+        this.updateChart();
+    },
+    
+    renderLeadControls() {
+        const controls = Object.keys(this.leadStatus).map(lead => `
+            <label class="lead-label">
+                <input type="checkbox" ${this.leadStatus[lead] ? 'checked' : ''} 
+                       onchange="AppState.toggleLead('${lead}')"
+                       style="margin-right: 0.5rem;">
+                <span style="color: ${this.leadStatus[lead] ? CONFIG.colors.normal : '#666'}">
+                    ${lead}
+                </span>
+            </label>
+        `).join('');
+        document.getElementById('leadControls').innerHTML = controls;
+    },
+    
+    generateData(leadType) {
+        const data = [];
+        const config = CONFIG.leadConfig[leadType];
+        const baseInterval = config.interval;
+        
+        for (let i = 0; i < CONFIG.dataLength; i++) {
+            let t = i * CONFIG.sampleRate;
+            const cyclePos = t % baseInterval;
+            
+            const qrs = 15 * Math.exp(-Math.pow((cyclePos - 200)/22, 2)) * config.amp;
+            const pWave = 0.6 * Math.sin(t * 0.028) * Math.exp(-Math.abs(cyclePos - 80)/45);
+            const tWave = 0.8 * Math.sin(t * 0.016 + 1.2) * Math.exp(-Math.abs(cyclePos - 620)/130);
+            const noise = (Math.random() - 0.5) * 0.15;
+            
+            let y = qrs + pWave + tWave + noise;
+            data.push([t, y]);
+        }
+        return data;
+    },
+    
+    updateChart() {
+        const leads = Object.keys(this.leadStatus).filter(lead => this.leadStatus[lead]);
+        
+        const option = {
+            animation: false,
+            grid: leads.map((_, i) => ({
+                top: `${5 + i * 8}%`,
+                height: '6%',
+                left: '12%',
+                right: '5%'
+            })),
+            xAxis: leads.map((_, i) => this.createXAxis(i === leads.length - 1, i)),
+            yAxis: leads.map((_, i) => ({
+                gridIndex: i,
+                min: -15,
+                max: 15,
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { show: false }
+            })),
+            series: leads.map((lead, i) => this.createSeries(lead, i)),
+            graphic: leads.map((lead, i) => this.createLeadLabel(lead, i))
+        };
+        
+        this.ecgChart.setOption(option, true);
+    },
+    
+    createXAxis(showLabel, gridIndex) {
+        return {
+            type: 'value',
+            gridIndex,
+            min: 0,
+            max: CONFIG.dataLength * CONFIG.sampleRate,
+            axisLabel: { 
+                show: showLabel,
+                formatter: val => `${(val/1000).toFixed(1)}s`,
+                color: '#7f8c8d',
+                fontSize: 12
+            },
+            splitLine: {
+                show: true,
+                lineStyle: {
+                    color: CONFIG.colors.gridLine,
+                    type: 'dashed',
+                    opacity: 0.6
+                }
+            }
+        };
+    },
+    
+    createSeries(lead, index) {
+        return {
+            type: 'line',
+            xAxisIndex: index,
+            yAxisIndex: index,
+            data: this.generateData(lead),
+            lineStyle: { 
+                color: CONFIG.colors.normal,
+                width: 1.4,
+                shadowColor: 'rgba(44, 62, 80, 0.1)',
+                shadowBlur: 3,
+                shadowOffsetY: 2
+            },
+            smooth: 0.18,
+            progressive: 300,
+            name: lead
+        };
+    },
+    
+    createLeadLabel(lead, index) {
+        return {
+            type: 'text',
+            left: '5%',
+            top: `${5 + index * 8 + 2}%`,
+            style: {
+                text: lead,
+                fill: CONFIG.colors.normal,
+                fontSize: 14,
+                fontWeight: '600',
+                textShadowBlur: 4,
+                textShadowColor: 'rgba(255,255,255,0.8)'
+            }
+        };
+    },
+    
+    toggleLead(lead) {
+        this.leadStatus[lead] = !this.leadStatus[lead];
+        this.renderLeadControls();
+        this.updateChart();
+    },
+    
+    bindEvents() {
+        window.addEventListener('resize', () => {
+            this.ecgChart.resize();
+            document.documentElement.style.fontSize = 
+                window.innerWidth < 768 ? '12px' : '14px';
+        });
+    }
+};
+
+const Measurement = {
+    activeLine: null,
+    measurements: [],
+    currentTags: [],
+    
+    init() {
+        this.bindDragEvents();
+    },
+
+    bindDragEvents() {
+        let isDragging = false;
+        let startPos = { x: 0, y: 0 };
+        
+        document.addEventListener('mousedown', e => {
+            if (e.target?.closest?.('.echarts-graphic')) {
+                const graphic = AppState.ecgChart.getZr().findHover(
+                    AppState.ecgChart.getZr().getWidth() - e.offsetX,
+                    e.offsetY
+                );
+                if (graphic?.id?.startsWith('measureLine')) {
+                    this.activeLine = graphic;
+                    isDragging = true;
+                    startPos = { x: e.clientX, y: e.clientY };
+                }
+            }
+        });
+
+        document.addEventListener('mousemove', e => {
+            if (isDragging && this.activeLine) {
+                const deltaX = e.clientX - startPos.x;
+                const coordSys = this.getCoordinateSystem(this.activeLine.gridIndex);
+                if (!coordSys) return;
+
+                const newX = coordSys.getAxis('x').toValue(
+                    coordSys.getAxis('x').getExtent()[0] + 
+                    (e.offsetX - coordSys.getRect().x) * coordSys.getAxis('x').getExtent()[1] / coordSys.getRect().width
+                );
+                
+                this.updateLinePosition(this.activeLine, newX);
+                this.updateMeasurementInfo();
+                startPos = { x: e.clientX, y: e.clientY };
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            this.activeLine = null;
+        });
+    },
+
+    getCoordinateSystem(gridIndex) {
+        const series = AppState.ecgChart.getModel().getSeries()[gridIndex];
+        return series?.getCoordinateSystem?.();
+    },
+
+    handleChartClick(params) {
+        if (!params.value) return;
+        
+        const point = this.snapToPeak(params);
+        AppState.measurePoints.push({ 
+            time: point.time, 
+            value: point.value,
+            gridIndex: params.seriesIndex
+        });
+        
+        if (AppState.measurePoints.length === 2) {
+            this.createMeasurement();
+            AppState.measurePoints = [];
+        }
+    },
+
+    snapToPeak(params) {
+        const series = AppState.ecgChart.getModel().getSeries()[params.seriesIndex];
+        const data = series.getData();
+        const searchRange = 10;
+        
+        let maxVal = -Infinity;
+        let peakIndex = params.dataIndex;
+        for (let i = Math.max(0, params.dataIndex - searchRange); 
+             i < Math.min(data.count(), params.dataIndex + searchRange); i++) {
+            const val = Math.abs(data.get('y', i));
+            if (val > maxVal) {
+                maxVal = val;
+                peakIndex = i;
+            }
+        }
+        
+        return {
+            time: data.get('x', peakIndex),
+            value: data.get('y', peakIndex)
+        };
+    },
+
+    createMeasurement() {
+        const [p1, p2] = AppState.measurePoints;
+        if (p1.gridIndex !== p2.gridIndex) {
+            alert("请在同一导联上进行测量！");
+            return;
+        }
+
+        const duration = Math.abs(p2.time - p1.time);
+        const amplitude = Math.abs(p2.value - p1.value);
+        
+        const measurement = {
+            points: [p1, p2],
+            duration,
+            amplitude,
+            timestamp: new Date().toLocaleTimeString(),
+            elements: []
+        };
+        
+        measurement.elements.push(
+            ...this.drawMeasurementLines(p1.time, p2.time, p1.gridIndex),
+            ...this.createMeasurementTags(p1, p2)
+        );
+        
+        this.measurements.push(measurement);
+        this.updateHistoryPanel();
+        this.updateMeasurementInfo(measurement);
+    },
+
+    drawMeasurementLines(x1, x2, gridIndex) {
+        const lines = [
+            this.createVerticalLine(x1, gridIndex, 'measureLine1'),
+            this.createVerticalLine(x2, gridIndex, 'measureLine2'),
+            this.createConnectionLine(x1, x2, gridIndex)
+        ];
+        
+        AppState.ecgChart.setOption({ 
+            graphic: [...AppState.ecgChart.getOption().graphic, ...lines] 
+        });
+        return lines;
+    },
+
+    createVerticalLine(xPos, gridIndex, id) {
+        return {
+            id: `measureLine_${id}_${Date.now()}`,
+            type: 'line',
+            z: 99,
+            shape: { x1: xPos, y1: '100%', x2: xPos, y2: '0%' },
+            style: {
+                stroke: CONFIG.colors.measureLine,
+                lineWidth: 1.5,
+                lineDash: [4, 4],
+                opacity: 0.7
+            },
+            position: ['12%', '0%'],
+            scale: true,
+            gridIndex: gridIndex,
+            draggable: true
+        };
+    },
+
+    createConnectionLine(x1, x2, gridIndex) {
+        return {
+            type: 'line',
+            z: 98,
+            shape: { x1, y1: 0, x2, y2: 0 },
+            style: {
+                stroke: '#e74c3c',
+                lineWidth: 1,
+                opacity: 0.5
+            },
+            position: ['12%', '50%'],
+            gridIndex: gridIndex
+        };
+    },
+
+    createMeasurementTags(p1, p2) {
+        const tags = [];
+        const formatter = val => `${val.toFixed(1)}ms`;
+        
+        tags.push(this.createTagElement(p1.time, p1.gridIndex, formatter(p1.time)));
+        tags.push(this.createTagElement(p2.time, p2.gridIndex, formatter(p2.time)));
+        
+        return tags;
+    },
+
+    createTagElement(xPos, gridIndex, text) {
+        const tag = document.createElement('div');
+        tag.className = 'measure-tag';
+        tag.textContent = text;
+        
+        const updatePosition = () => {
+            const coordSys = this.getCoordinateSystem(gridIndex);
+            if (!coordSys) return;
+
+            const rect = AppState.ecgChart.getDom().getBoundingClientRect();
+            const point = coordSys.dataToPoint([xPos, 0]);
+            
+            tag.style.left = `${rect.left + point[0]}px`;
+            tag.style.top = `${rect.top + point[1]}px`;
+        };
+        
+        updatePosition();
+        document.body.appendChild(tag);
+        return { element: tag, update: updatePosition };
+    },
+
+    updateMeasurementInfo(measurement) {
+        document.getElementById('measureDuration').textContent = measurement.duration.toFixed(1);
+        document.getElementById('measureAmplitude').textContent = measurement.amplitude.toFixed(2);
+        document.getElementById('measureInfo').style.display = 'block';
+    },
+
+    updateHistoryPanel() {
+        document.getElementById('historyPanel').style.display = 'block';
+        const list = this.measurements.map((m, i) => `
+            <div class="history-item" onclick="Measurement.highlight(${i})">
+                [${m.timestamp}] 时长: ${m.duration.toFixed(1)}ms 
+                振幅: ${m.amplitude.toFixed(2)}mV
+            </div>
+        `).join('');
+        document.getElementById('historyList').innerHTML = list;
+    },
+
+    highlight(index) {
+        const measurement = this.measurements[index];
+        measurement.elements.forEach(el => {
+            if (el.style) el.style.opacity = 1;
+            if (el.element) el.element.style.opacity = 1;
+        });
+    },
+
+    undoLast() {
+        const last = this.measurements.pop();
+        last.elements.forEach(el => {
+            if (el.element) el.element.remove();
+            else AppState.ecgChart.setOption({
+                graphic: AppState.ecgChart.getOption().graphic.filter(g => g !== el)
+            });
+        });
+        this.updateHistoryPanel();
+    }
+};
+
+// 初始化应用
+AppState.init();
+</script>
+</body>
+</html>
