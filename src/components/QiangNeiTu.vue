@@ -29,7 +29,7 @@
       </el-button>
       <el-button type="primary" :icon="Edit">测量振幅高度</el-button>
     </el-row>
-    <el-row class="canvas-wrapper"> 123 </el-row>
+    <Echarts></Echarts>
     <el-alert
       class="bottom-box"
       type="success"
@@ -54,6 +54,7 @@
 
 <script setup lang="ts">
 import { Edit, Document } from "@element-plus/icons-vue";
+import Echarts from "./Echarts.vue";
 const currentLead = ref(12);
 const currentTime = ref([]);
 const seleteLists = ref([
@@ -95,12 +96,6 @@ const seleteLists = ref([
         color: #111;
       }
     }
-  }
-
-  .canvas-wrapper {
-    height: calc(100% - 104px);
-    margin: 12px 0;
-    border: 1px solid #eee;
   }
 }
 </style>

@@ -26,8 +26,10 @@ module.exports = {
   plugins: ["vue", "@typescript-eslint", "prettier"],
   rules: {
     "@typescript-eslint/no-explicit-any": "off",
-    "no-useless-escape": "off",
+    "@typescript-eslint/no-unused-vars": "off",
+    "@typescript-eslint/no-empty-function": "off",
     "vue/multi-word-component-names": "off",
+    "no-useless-escape": "off",
     "no-undef": "off",
   },
   globals: {
