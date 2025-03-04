@@ -8,20 +8,25 @@
         range-separator="至"
         start-placeholder="开始时间"
         end-placeholder="结束时间"
+        format="HH:mm:ss"
         style="max-width: 300px; margin-right: 12px"
+        @change="changeTime"
       >
       </el-time-picker>
-      <span style="margin-right: 12px">通道设置</span>
+      <span style="margin-right: 12px">导联设置</span>
       <el-select
-        v-model="currentLead"
+        v-model="currentLeads"
         placeholder="请选择导联"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
         style="width: 300px"
       >
         <el-option
-          v-for="item in seleteLists"
-          :key="item.value"
-          :label="item.label"
-          :value="item.value"
+          v-for="item in leadsArr"
+          :key="item"
+          :label="item"
+          :value="item"
         />
       </el-select>
       <el-button style="margin-left: auto" type="primary" :icon="Edit">
@@ -29,7 +34,8 @@
       </el-button>
       <el-button type="primary" :icon="Edit">测量振幅高度</el-button>
     </el-row>
-    <Echarts></Echarts>
+    <!-- <Echarts></Echarts> -->
+    <CanvasDom ref="canvasDomRef"></CanvasDom>
     <el-alert
       class="bottom-box"
       type="success"
@@ -53,24 +59,59 @@
 </template>
 
 <script setup lang="ts">
+import dayjs from "dayjs";
 import { Edit, Document } from "@element-plus/icons-vue";
-import Echarts from "./Echarts.vue";
-const currentLead = ref(12);
-const currentTime = ref([]);
-const seleteLists = ref([
-  {
-    value: 5,
-    label: 5,
-  },
-  {
-    value: 10,
-    label: 10,
-  },
-  {
-    value: 12,
-    label: 12,
-  },
+import { leadsArr } from "./const";
+// import Echarts from "./Echarts.vue";
+import CanvasDom from "./Canvas.vue";
+const canvasDomRef: any = ref();
+const currentLeads: any = ref([]);
+const currentTime: any = ref([dayjs().startOf("day"), dayjs().endOf("day")]);
+const currentTimeFormate = computed(() => [
+  dayjs(currentTime.value[0]).format("YYYY-MM-DD HH:mm:ss"),
+  dayjs(currentTime.value[1]).format("YYYY-MM-DD HH:mm:ss"),
 ]);
+const timeArr = ref([]);
+
+/**
+ * 根据 [startTime, endTime] 生成每隔一小时的时间数组
+ * @param {string} startTime - 开始时间（格式：YYYY-MM-DD HH:mm:ss）
+ * @param {string} endTime - 结束时间（格式：YYYY-MM-DD HH:mm:ss）
+ * @returns {string[]} - 每隔一小时的时间数组
+ */
+const generateHourlyTimeSlots = (startTime, endTime) => {
+  const timeSlots: any = [];
+  let currentTime = dayjs(startTime); // 初始化当前时间为 startTime
+
+  // 循环直到当前时间超过 endTime
+  while (currentTime.isBefore(endTime)) {
+    // timeSlots.push(currentTime.format("YYYY-MM-DD HH:mm:ss")); // 将当前时间加入数组
+    timeSlots.push(currentTime.format("HH:mm:ss")); // 将当前时间加入数组
+    currentTime = currentTime.add(1, "hour"); // 增加一小时
+  }
+
+  return timeSlots;
+};
+
+const changeTime = () => {
+  console.log(currentTime.value, "currentTime.value");
+};
+
+onMounted(() => {
+  timeArr.value = generateHourlyTimeSlots(
+    currentTime.value[0],
+    currentTime.value[1]
+  );
+  currentLeads.value = [...leadsArr];
+  console.log(timeArr.value);
+  nextTick(() => {
+    canvasDomRef.value?.init({
+      times: [...timeArr.value],
+      currentTime: [...currentTimeFormate.value],
+      leads: [...currentLeads.value],
+    });
+  });
+});
 </script>
 
 <style scoped lang="scss">

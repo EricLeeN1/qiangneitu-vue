@@ -26,7 +26,7 @@ const leadsArr = [
 ];
 
 const generateECGWaveform = (points) => {
-  const data = [];
+  const data: any = [];
   let value = 0;
   for (let i = 0; i < points; i++) {
     if (i % 50 === 0) {
@@ -43,12 +43,20 @@ const generateECGWaveform = (points) => {
   return data;
 };
 
-const seriesData = leadsArr.map((lead, index) => ({
+const datas = leadsArr.map((item, index) => {
+  return generateECGWaveform(500).map((val) => val + index * 3); // 垂直偏移以分离通道
+});
+
+// 存储点击的竖线信息
+let clickLines: any = [];
+let clickCount = 0;
+
+const seriesData: any = leadsArr.map((lead, index) => ({
   name: lead,
   type: "line",
   showSymbol: false,
   color: "#000000",
-  data: generateECGWaveform(500).map((val) => val + index * 3), // 垂直偏移以分离通道
+  data: datas[index],
   emphasis: { focus: "series" },
   lineStyle: { width: 1.5 },
 }));
@@ -57,7 +65,7 @@ const init = () => {
   console.log(dom);
 
   const chart = echarts.init(dom);
-  chart.setOption({
+  let option: any = {
     title: { text: "like Lines", left: "center" },
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
     legend: { data: leadsArr, top: 30 },
@@ -100,6 +108,78 @@ const init = () => {
       max: leadsArr.length * 3,
     },
     series: seriesData,
+  };
+  chart.setOption(option);
+  // 添加点击事件监听器
+  chart.on("click", (params) => {
+    console.log(params);
+    const xAxisValue: any = Math.floor(params.dataIndex); // 获取点击的 x 轴值
+    const seriesIndex: any = params.seriesIndex; // 获取点击的 x 轴值
+    console.log(xAxisValue);
+    console.log(clickLines);
+
+    // 添加竖线
+    const markLine = {
+      animation: false,
+      label: {
+        show: true,
+        formatter: "Line " + (clickCount + 1),
+      },
+      lineStyle: {
+        type: "solid",
+        color: "#ff0000",
+      },
+      data: [
+        {
+          xAxis: xAxisValue,
+        },
+      ],
+    };
+    // 更新配置项，添加竖线
+    option.series[seriesIndex].markLine = markLine;
+    chart.setOption(option);
+
+    // 获取竖线上所有系列的数据
+    const seriesData = datas.map((series) => series[params.dataIndex]);
+
+    // 存储点击的竖线信息
+    clickLines.push({
+      xAxisValue: xAxisValue,
+      seriesData: seriesData,
+    });
+
+    // 点击次数加1
+    clickCount++;
+
+    // 如果点击了两次
+    if (clickCount === 2) {
+      // 计算两条竖线之间的数据
+      const firstLine = clickLines[0];
+      const secondLine = clickLines[1];
+      console.log(option.xAxis.data);
+
+      let startIndex = option.xAxis.data.indexOf(
+        firstLine.xAxisValue.toString()
+      );
+      let endIndex = option.xAxis.data.indexOf(
+        secondLine.xAxisValue.toString()
+      );
+      console.log("startIndex", startIndex);
+      console.log("endIndex", endIndex);
+      if (startIndex > endIndex) {
+        [startIndex, endIndex] = [endIndex, startIndex];
+      }
+
+      const rangeData = datas.map((series) =>
+        series.slice(startIndex, endIndex + 1)
+      );
+
+      console.log("两条竖线之间的数据:", rangeData);
+
+      // 重置点击次数和竖线信息
+      clickCount = 0;
+      clickLines = [];
+    }
   });
 };
 onMounted(() => {
