@@ -4,7 +4,7 @@
       id="iegmCanvas"
       ref="canvasRef"
       width="1000"
-      height="602"
+      height="722"
       @click="canvasClick"
       @mousedown="canvasMouseDown"
       @mousemove="canvasMouseMove"
@@ -31,6 +31,7 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessage } from "element-plus";
 import { leadsArr } from "./const";
 const canvasRef: any = ref(null);
 let ctx: any = ref();
@@ -44,16 +45,16 @@ const state: any = reactive({
   padding: 50, // 画布边距
   times: [], // 时间数组
   totalTime: 0, // 时间数组长度（ms）
-  initHeight: 602, // canvas初始化高度（px）
+  initHeight: 722, // canvas初始化高度（px）
   timeScale: "", // 时间缩放比例,
   channelCount: 5, // 要绘制的腔内电图数量
-  channelSpacings: "", // 每个通道的间距比例
+  channelSpacings: "", // 每个导联的间距比例
   channelSpacing: "", // 每个腔内电图之间的垂直间距
   offset: 0, // 波形偏移量
   iegmData: [], // 存储每个腔内电图的数据
   iegmNames: leadsArr, // 存储每个腔内电图的名称
-  isDraggingChannel: false, // 是否正在拖拽调整通道间距
-  draggedChannelIndex: -1, // 当前拖拽的通道索引
+  isDraggingChannel: false, // 是否正在拖拽调整导联间距
+  draggedChannelIndex: -1, // 当前拖拽的导联索引
   verticalLines: [], // 存储竖线的位置
   isFirstLine: true, // 标记当前是第一条还是第二条竖线
   initialMouseY: 0, // 拖拽起始Y坐标
@@ -69,6 +70,16 @@ const state: any = reactive({
     y: 0,
   }, // 弹框位置
   info: "", // 点位信息
+});
+
+const finallyVerticalLines = computed(() => {
+  if (state.verticalLines.length == 2) {
+    const num1 = state.verticalLines[0];
+    const num2 = state.verticalLines[1];
+    return num2 > num1 ? [num1, num2] : [num2, num1];
+  } else {
+    return state.verticalLines;
+  }
 });
 
 // 生成随机噪声，用于模拟腔内电图的不规则性
@@ -113,9 +124,11 @@ const drawXAxis = () => {
     ctx.value.lineTo(x, canvasRef.value.height - state.padding + 5);
     ctx.value.stroke();
 
+    const time = state.times[t];
+
     // 显示时间刻度值
     ctx.value.fillText(
-      `${t}ms`,
+      `${time}`,
       x - 10,
       canvasRef.value.height - state.padding + 20
     );
@@ -138,7 +151,7 @@ const drawYAxis = () => {
   }
 };
 
-// 获取通道的Y坐标
+// 获取导联的Y坐标
 const getChannelY = (index) => {
   let y = state.padding;
   for (let i = 0; i < index; i++) {
@@ -147,12 +160,12 @@ const getChannelY = (index) => {
   return y;
 };
 
-// 获取通道的高度
+// 获取导联的高度
 const getChannelHeight = () => {
   return state.channelSpacing - 20; // 固定高度
 };
 
-// 绘制通道波形
+// 绘制导联波形
 const drawChannels = () => {
   ctx.value.strokeStyle = "#00ff00";
   ctx.value.lineWidth = 2;
@@ -195,8 +208,8 @@ const drawVerticalLines = () => {
 
   // 如果存在两条竖线，绘制带箭头的横线并显示差异
   if (state.verticalLines.length === 2) {
-    const x1 = state.verticalLines[0];
-    const x2 = state.verticalLines[1];
+    const x1 = finallyVerticalLines.value[0];
+    const x2 = finallyVerticalLines.value[1];
     const index = state.iegmNames.findIndex(
       (name) => name === state.lastClick.channel
     );
@@ -256,13 +269,40 @@ const drawCanvas = () => {
   drawXAxis();
   drawYAxis();
 
-  // 绘制通道波形
+  // 绘制导联波形
   drawChannels();
 
   // requestAnimationFrame(drawChannels);
 
   // 绘制竖线
   drawVerticalLines();
+};
+
+const getClickTime = () => {
+  console.log("点击了吗");
+
+  let message = "";
+  let type = "success";
+  const length = state.verticalLines.length;
+  console.log(state.verticalLines);
+
+  if (!length) {
+    message = "请先点击获取时间";
+    type = "warning";
+  } else if (length === 1) {
+    const time = state.times[finallyVerticalLines.value[0]];
+    message = `测量波形的时间是${time}`;
+  } else if (length === 2) {
+    const time1 = state.times[finallyVerticalLines.value[0]];
+    const time2 = state.times[finallyVerticalLines.value[1]];
+    message = `测量波形的时间是${time1}-${time2}`;
+  }
+
+  console.log(message, type);
+  ElMessage({
+    message,
+    type,
+  });
 };
 
 // 隐藏弹窗
@@ -300,18 +340,25 @@ const showData = (mouseX, mouseY) => {
 
   if (state.verticalLines.length === 1) {
     const x = state.verticalLines[0];
+    console.log(x);
+    const time = state.times[x];
     const t = Math.round((x - state.padding) / state.timeScale); // 计算时间点
+    console.log(t);
 
-    info += `时间: ${t}ms\n`;
+    info += `时间: ${time}\n`;
     for (let i = 0; i < state.channelCount; i++) {
       info += `${state.iegmNames[i]}: ${state.iegmData[i][t].toFixed(2)}\n`;
     }
   } else if (state.verticalLines.length === 2) {
-    const x1 = state.verticalLines[0];
-    const x2 = state.verticalLines[1];
+    const x1 = finallyVerticalLines.value[0];
+    const x2 = finallyVerticalLines.value[1];
+    const time1 = state.times[x1];
+    const time2 = state.times[x2];
+    console.log(x1, x2);
     const t1 = Math.round((x1 - state.padding) / state.timeScale);
     const t2 = Math.round((x2 - state.padding) / state.timeScale);
-    info += `时间范围: ${t1}ms to ${t2}ms\n`;
+    console.log(t1, t2);
+    info += `时间范围: ${time1} 到 ${time2}\n`;
     for (let i = 0; i < state.channelCount; i++) {
       const values = state.iegmData[i].slice(
         t2 + 1 > t1 ? t1 : t2 + 1,
@@ -342,7 +389,7 @@ const showData = (mouseX, mouseY) => {
   // state.infoDiv.textContent = info;
 };
 
-// 获取点击位置对应的通道和时间
+// 获取点击位置对应的导联和时间
 const getClickInfo = (x, y) => {
   const channelIndex = Math.floor((y - 20) / state.channelSpacing);
   const time = ((x - 50) / (canvasRef.value.width - 100)) * state.totalTime;
@@ -351,7 +398,7 @@ const getClickInfo = (x, y) => {
 
 const showClickInfos = (x, y) => {
   const { channel, time } = getClickInfo(x, y);
-  // console.log(`点击通道: ${channel}, 时间: ${time}`);
+  // console.log(`点击导联: ${channel}, 时间: ${time}`);
 
   if (state.lastClick.channel === channel) {
     let info = "";
@@ -363,20 +410,17 @@ const showClickInfos = (x, y) => {
 
     const channelIndex = state.iegmNames.indexOf(channel);
     const channelData = state.iegmData[channelIndex];
-    // console.log(`通道 Index: ${channelIndex}`);
+    // console.log(`导联 Index: ${channelIndex}`);
 
     const startIndex = Math.floor(minTime);
     const endIndex = Math.floor(maxTime);
-    // console.log(`通道开始与结束时间取整: ${startIndex} ${endIndex}`);
+    // console.log(`导联开始与结束时间取整: ${startIndex} ${endIndex}`);
 
     const dataSlice = channelData.slice(startIndex, endIndex + 1);
     const maxValue = Math.max(...dataSlice);
     const minValue = Math.min(...dataSlice);
 
-    // console.log(`通道: ${channel}, 时间范围: ${minTime.toFixed(2)}ms - ${maxTime.toFixed(2)}ms`);
-    // console.log(`最大值: ${maxValue}, 最小值: ${minValue}`);
-
-    info += `当前通道: ${channel}, 时间范围: ${minTime.toFixed(
+    info += `当前导联: ${channel}, 时间范围: ${minTime.toFixed(
       2
     )}ms - ${maxTime.toFixed(2)}ms\n`;
     info += `最大值: ${maxValue}, 最小值: ${minValue}\n`;
@@ -423,7 +467,7 @@ const canvasClick = (event) => {
   showData(mouseX, mouseY);
 };
 
-// 长按拖拽调整通道间距
+// 长按拖拽调整导联间距
 const canvasMouseDown = (event) => {
   console.log(event);
 
@@ -433,7 +477,7 @@ const canvasMouseDown = (event) => {
 
   const mouseY = event.clientY - rect.top; // 点击的Y坐标
   console.log(mouseY, "mouseY");
-  // 检查点击是否在某个通道范围内
+  // 检查点击是否在某个导联范围内
   for (let i = 0; i < state.channelCount; i++) {
     const y = getChannelY(i);
     const height = getChannelHeight();
@@ -441,7 +485,7 @@ const canvasMouseDown = (event) => {
       state.draggedChannelIndex = i;
       state.initialMouseY = mouseY;
       state.initialSpacing = state.channelSpacings[i];
-      // 长按时初始化其他通道缩放比例为1
+      // 长按时初始化其他导联缩放比例为1
       for (let j = 0; j < state.channelCount; j++) {
         if (j !== state.draggedChannelIndex) {
           state.channelSpacings[j] = 1;
@@ -459,7 +503,7 @@ const canvasMouseMove = (event) => {
     const rect = canvasRef.value.getBoundingClientRect();
     const mouseY = event.clientY - rect.top; // 拖拽的Y坐标
 
-    // 计算新的通道间距
+    // 计算新的导联间距
     const deltaY = Math.abs(mouseY - state.initialMouseY);
     state.channelSpacings[state.draggedChannelIndex] =
       state.initialSpacing + deltaY / 50; // 50 是缩放因子
@@ -492,7 +536,7 @@ const canvasMouseUp = () => {
     state.isDraggingChannel = false;
     state.draggedChannelIndex = -1;
     // canvasRef.value.height = initHeight;
-    // channelSpacings = new Array(channelCount).fill(1); // 每个通道的间距比例
+    // channelSpacings = new Array(channelCount).fill(1); // 每个导联的间距比例
     // 重新绘制Canvas
     drawCanvas();
   }, 200);
@@ -500,7 +544,7 @@ const canvasMouseUp = () => {
 
 clearBtn?.addEventListener("click", () => {
   canvasRef.value.height = state.initHeight;
-  state.channelSpacings = new Array(state.channelCount).fill(1); // 每个通道的间距比例
+  state.channelSpacings = new Array(state.channelCount).fill(1); // 每个导联的间距比例
   // 重新绘制Canvas
   drawCanvas();
 });
@@ -509,13 +553,18 @@ const init = ({ times, currentTime, leads }) => {
   console.log(times, currentTime, leads);
   ctx.value = canvasRef.value?.getContext("2d");
   state.iegmNames = leads;
-  state.iegmNames = leads;
+  state.channelCount = leads.length;
+  state.times = times;
+  // 计算两个时间点之间的分钟差
+  state.totalTime = times.length;
+  console.log(canvasRef.value.width - 2 * state.padding);
+
   state.timeScale =
     (canvasRef.value.width - 2 * state.padding) / state.totalTime;
   state.channelSpacing =
     (canvasRef.value.height - 2 * state.padding) / state.channelCount; // 每个腔内电图之间的垂直间距
 
-  state.channelSpacings = new Array(state.channelCount).fill(1); // 每个通道的间距比例
+  state.channelSpacings = new Array(state.channelCount).fill(1); // 每个导联的间距比例
   // 初始化数据存储和名称
   state.iegmData = []; // 初始化数据
   for (let i = 1; i <= state.channelCount; i++) {
@@ -532,6 +581,7 @@ const init = ({ times, currentTime, leads }) => {
 // });
 defineExpose({
   init,
+  getClickTime,
 });
 </script>
 

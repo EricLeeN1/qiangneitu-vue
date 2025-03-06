@@ -21,6 +21,7 @@
         collapse-tags
         collapse-tags-tooltip
         style="width: 300px"
+        @blur="changeLeads"
       >
         <el-option
           v-for="item in leadsArr"
@@ -29,7 +30,12 @@
           :value="item"
         />
       </el-select>
-      <el-button style="margin-left: auto" type="primary" :icon="Edit">
+      <el-button
+        style="margin-left: auto"
+        type="primary"
+        :icon="Edit"
+        @click="getClickTime"
+      >
         测量波形时间
       </el-button>
       <el-button type="primary" :icon="Edit">测量振幅高度</el-button>
@@ -65,7 +71,7 @@ import { leadsArr } from "./const";
 // import Echarts from "./Echarts.vue";
 import CanvasDom from "./Canvas.vue";
 const canvasDomRef: any = ref();
-const currentLeads: any = ref([]);
+const currentLeads: any = ref([...leadsArr]);
 const currentTime: any = ref([dayjs().startOf("day"), dayjs().endOf("day")]);
 const currentTimeFormate = computed(() => [
   dayjs(currentTime.value[0]).format("YYYY-MM-DD HH:mm:ss"),
@@ -87,22 +93,30 @@ const generateHourlyTimeSlots = (startTime, endTime) => {
   while (currentTime.isBefore(endTime)) {
     // timeSlots.push(currentTime.format("YYYY-MM-DD HH:mm:ss")); // 将当前时间加入数组
     timeSlots.push(currentTime.format("HH:mm:ss")); // 将当前时间加入数组
-    currentTime = currentTime.add(1, "hour"); // 增加一小时
+    currentTime = currentTime.add(1, "minutes"); // 增加一分钟
   }
 
   return timeSlots;
 };
 
-const changeTime = () => {
-  console.log(currentTime.value, "currentTime.value");
+const getClickTime = () => {
+  canvasDomRef.value?.getClickTime();
 };
 
-onMounted(() => {
+const changeTime = () => {
+  console.log(currentTimeFormate.value, "currentTime.value");
+  drawCanvas();
+};
+const changeLeads = () => {
+  console.log(currentLeads.value, "currentLeads.value");
+  drawCanvas();
+};
+
+const drawCanvas = () => {
   timeArr.value = generateHourlyTimeSlots(
     currentTime.value[0],
     currentTime.value[1]
   );
-  currentLeads.value = [...leadsArr];
   console.log(timeArr.value);
   nextTick(() => {
     canvasDomRef.value?.init({
@@ -111,6 +125,10 @@ onMounted(() => {
       leads: [...currentLeads.value],
     });
   });
+};
+
+onMounted(() => {
+  drawCanvas();
 });
 </script>
 
