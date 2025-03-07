@@ -8,7 +8,7 @@
         range-separator="至"
         start-placeholder="开始时间"
         end-placeholder="结束时间"
-        format="HH:mm:ss"
+        format="HH:mm"
         style="max-width: 300px; margin-right: 12px"
         @change="changeTime"
       >
@@ -38,13 +38,28 @@
       >
         测量波形时间
       </el-button>
-      <el-button type="primary" :icon="Edit">测量振幅高度</el-button>
+      <el-button type="primary" :icon="Edit" @click="getAmplitude">
+        测量振幅高度
+      </el-button>
     </el-row>
     <!-- <Echarts></Echarts> -->
     <CanvasDom
       ref="canvasDomRef"
       @updateClickResult="updateClickResult"
     ></CanvasDom>
+    <el-row class="slide-wrapper">
+      <el-slider
+        v-model="timeSlide"
+        style="width: 100%"
+        range
+        :min="0"
+        :max="1440"
+        :step="1"
+        :format-tooltip="formatTooltip"
+        :marks="marks"
+        @change="handleSlideChange"
+      />
+    </el-row>
     <el-alert
       class="bottom-box"
       type="success"
@@ -83,6 +98,52 @@ const currentTimeFormate = computed(() => [
   dayjs(currentTime.value[1]).format("YYYY-MM-DD HH:mm:ss"),
 ]);
 const timeArr = ref([]);
+const timeSlide = ref([0, 1439]);
+
+const marks = reactive({
+  0: "00:00",
+  720: "12:00",
+  1439: "23:59",
+});
+
+// 将分钟数转换为时间字符串（HH:mm）
+const formatTime = (minutes) => {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+};
+
+("12:00");
+const getTimeInfos = (times, isStart = true) => {
+  const timesArr = times.split(":");
+  console.log(timesArr);
+
+  const day = dayjs().format("YYYY-MM-DD");
+  console.log(
+    `${day} ${timesArr[0] - 0}:${timesArr[1] - 0}:${isStart ? 0 : 59}`
+  );
+
+  return dayjs(
+    `${day} ${timesArr[0] - 0}:${timesArr[1] - 0}:${isStart ? 0 : 59}`
+  );
+};
+
+// 处理时间范围变化
+const handleSlideChange = (value) => {
+  console.log("选择的时间范围:", value);
+  console.log("开始时间:", formatTime(value[0]));
+  console.log("结束时间:", formatTime(value[1]));
+  const time1 = getTimeInfos(formatTime(value[0]));
+  const time2 = getTimeInfos(formatTime(value[1]), false);
+  // 同步选择器时间
+  currentTime.value = [time1, time2];
+  // 同时更新画布
+  drawCanvas();
+};
+// 格式化滑块提示
+const formatTooltip = (value) => {
+  return formatTime(value);
+};
 
 /**
  * 根据 [startTime, endTime] 生成每隔一小时的时间数组
@@ -106,6 +167,10 @@ const generateHourlyTimeSlots = (startTime, endTime) => {
 
 const getClickTime = () => {
   canvasDomRef.value?.getClickTime();
+};
+
+const getAmplitude = () => {
+  canvasDomRef.value?.getMaxAndMin();
 };
 
 const saveExcel = () => {
@@ -151,6 +216,13 @@ onMounted(() => {
   padding: 20px;
   background-color: #fff;
   height: 100vh;
+
+  .slide-wrapper {
+    width: 1002px;
+    padding-left: 51px;
+    padding-right: 51px;
+    margin-bottom: 20px;
+  }
 
   .top-box {
   }

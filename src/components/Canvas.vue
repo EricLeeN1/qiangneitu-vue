@@ -41,6 +41,8 @@ const clickInfoDiv = document.getElementById("click-info");
 const selectBox = document.getElementById("selectBox");
 const popup: any = document.getElementById("popup");
 const clearBtn: any = document.getElementById("clearBtn");
+const emits = defineEmits(["updateClickResult"]);
+
 const state: any = reactive({
   speed: 2, // 波形的移动速度
   padding: 50, // 画布边距
@@ -436,8 +438,6 @@ const showClickInfos = (x, y) => {
   state.lastClick = { channel, time };
 };
 
-const emits = defineEmits(["updateClickResult"]);
-
 // 点击事件处理
 const canvasClick = (event) => {
   if (state.isDraggingChannel) {
@@ -611,6 +611,51 @@ const saveExcel = (filename) => {
   XLSX.writeFile(workbook, filename);
 };
 
+// 获取某一段数据的最高值和最低值
+const getMinMaxInRange = (arr, startIndex, endIndex) => {
+  // 检查输入是否有效
+  if (startIndex < 0 || endIndex >= arr.length || startIndex > endIndex) {
+    throw new Error("Invalid range");
+  }
+
+  // 提取指定范围内的数据
+  const rangeData = arr.slice(startIndex, endIndex + 1);
+
+  let max = rangeData[0];
+  let min = rangeData[0];
+  for (let i = 1; i < rangeData.length; i++) {
+    if (rangeData[i] > max) max = rangeData[i];
+    if (rangeData[i] < min) min = rangeData[i];
+  }
+
+  return { max, min };
+};
+
+const getMaxAndMin = () => {
+  let message = "";
+  let type = "success";
+  if (state.verticalLines.length === 2) {
+    const x1 = finallyVerticalLines.value[0];
+    const x2 = finallyVerticalLines.value[1];
+    const time1 = state.times[x1];
+    const time2 = state.times[x2];
+    const index = state.iegmNames.findIndex(
+      (name) => name === state.lastClick.channel
+    );
+    const arr = state.iegmData[index]; // 最后一次点击的导联
+    const { max, min } = getMinMaxInRange(arr, x1, x2);
+    console.log(max, min);
+    message = `导联 ${state.lastClick.channel} 在 ${time1} - ${time2} 范围内的最大值是 ${max}，最小值是 ${min}`;
+  } else {
+    message = "请先选择导联及时间范围";
+    type = "error";
+  }
+  ElMessage({
+    message,
+    type,
+  });
+};
+
 const init = ({ times, currentTime, leads }) => {
   console.log(times, currentTime, leads);
   ctx.value = canvasRef.value?.getContext("2d");
@@ -645,6 +690,7 @@ defineExpose({
   init,
   getClickTime,
   saveExcel,
+  getMaxAndMin,
 });
 </script>
 
