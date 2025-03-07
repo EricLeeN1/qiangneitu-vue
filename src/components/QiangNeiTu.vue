@@ -41,7 +41,10 @@
       <el-button type="primary" :icon="Edit">测量振幅高度</el-button>
     </el-row>
     <!-- <Echarts></Echarts> -->
-    <CanvasDom ref="canvasDomRef"></CanvasDom>
+    <CanvasDom
+      ref="canvasDomRef"
+      @updateClickResult="updateClickResult"
+    ></CanvasDom>
     <el-alert
       class="bottom-box"
       type="success"
@@ -49,13 +52,14 @@
       :closable="false"
     >
       <el-row align="middle" class="alert-contents">
-        <span>波形测量结果：</span>
-        <div>Rva/69ms</div>
+        <span>波形测量结果：{{ clickResult || "暂无数据" }}</span>
+        <div></div>
         <el-button
           style="margin-left: auto"
           type="success"
           :icon="Document"
           round
+          @click="saveExcel"
         >
           保存测量记录
         </el-button>
@@ -71,6 +75,7 @@ import { leadsArr } from "./const";
 // import Echarts from "./Echarts.vue";
 import CanvasDom from "./Canvas.vue";
 const canvasDomRef: any = ref();
+const clickResult: any = ref("");
 const currentLeads: any = ref([...leadsArr]);
 const currentTime: any = ref([dayjs().startOf("day"), dayjs().endOf("day")]);
 const currentTimeFormate = computed(() => [
@@ -103,6 +108,10 @@ const getClickTime = () => {
   canvasDomRef.value?.getClickTime();
 };
 
+const saveExcel = () => {
+  canvasDomRef.value?.saveExcel("测量结果.xlsx");
+};
+
 const changeTime = () => {
   console.log(currentTimeFormate.value, "currentTime.value");
   drawCanvas();
@@ -110,6 +119,11 @@ const changeTime = () => {
 const changeLeads = () => {
   console.log(currentLeads.value, "currentLeads.value");
   drawCanvas();
+};
+
+const updateClickResult = ({ channel, data }) => {
+  console.log(channel, data);
+  clickResult.value = `${channel}/${data}`;
 };
 
 const drawCanvas = () => {

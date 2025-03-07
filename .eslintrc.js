@@ -29,6 +29,7 @@ module.exports = {
     "@typescript-eslint/no-unused-vars": "off",
     "@typescript-eslint/no-empty-function": "off",
     "vue/multi-word-component-names": "off",
+    "vue/v-on-event-hyphenation": "off",
     "no-useless-escape": "off",
     "no-undef": "off",
   },

@@ -33,6 +33,7 @@
 <script setup lang="ts">
 import { ElMessage } from "element-plus";
 import { leadsArr } from "./const";
+import * as XLSX from "xlsx";
 const canvasRef: any = ref(null);
 let ctx: any = ref();
 const infoDiv = document.getElementById("info");
@@ -72,13 +73,25 @@ const state: any = reactive({
   info: "", // 点位信息
 });
 
+const currentChannel = computed(() => {
+  return state.lastClick.channel;
+});
+
 const finallyVerticalLines = computed(() => {
   if (state.verticalLines.length == 2) {
-    const num1 = state.verticalLines[0];
-    const num2 = state.verticalLines[1];
+    const num1 = Math.round(
+      (state.verticalLines[0] - state.padding) / state.timeScale
+    );
+    const num2 = Math.round(
+      (state.verticalLines[1] - state.padding) / state.timeScale
+    );
     return num2 > num1 ? [num1, num2] : [num2, num1];
+  } else if (state.verticalLines.length == 1) {
+    return [
+      Math.round((state.verticalLines[0] - state.padding) / state.timeScale),
+    ];
   } else {
-    return state.verticalLines;
+    return [];
   }
 });
 
@@ -124,14 +137,15 @@ const drawXAxis = () => {
     ctx.value.lineTo(x, canvasRef.value.height - state.padding + 5);
     ctx.value.stroke();
 
-    const time = state.times[t];
-
+    let time = state.times[t];
     // 显示时间刻度值
-    ctx.value.fillText(
-      `${time}`,
-      x - 10,
-      canvasRef.value.height - state.padding + 20
-    );
+    if (time) {
+      ctx.value.fillText(
+        `${time}`,
+        x - 10,
+        canvasRef.value.height - state.padding + 20
+      );
+    }
   }
 };
 
@@ -208,8 +222,8 @@ const drawVerticalLines = () => {
 
   // 如果存在两条竖线，绘制带箭头的横线并显示差异
   if (state.verticalLines.length === 2) {
-    const x1 = finallyVerticalLines.value[0];
-    const x2 = finallyVerticalLines.value[1];
+    const x1 = state.verticalLines[0];
+    const x2 = state.verticalLines[1];
     const index = state.iegmNames.findIndex(
       (name) => name === state.lastClick.channel
     );
@@ -244,8 +258,8 @@ const drawVerticalLines = () => {
     ctx.value.fill();
 
     // 计算并显示差异
-    const t1 = Math.round((x1 - state.padding) / state.timeScale);
-    const t2 = Math.round((x2 - state.padding) / state.timeScale);
+    const t1 = finallyVerticalLines.value[0];
+    const t2 = finallyVerticalLines.value[1];
     const y1 =
       Math.sin(((t1 + state.offset) * Math.PI) / 40) * 20 + generateNoise(5);
     const y2 =
@@ -284,7 +298,6 @@ const getClickTime = () => {
   let message = "";
   let type = "success";
   const length = state.verticalLines.length;
-  console.log(state.verticalLines);
 
   if (!length) {
     message = "请先点击获取时间";
@@ -339,15 +352,13 @@ const showData = (mouseX, mouseY) => {
   let info = "";
 
   if (state.verticalLines.length === 1) {
-    const x = state.verticalLines[0];
+    const x = finallyVerticalLines.value[0];
     console.log(x);
-    const time = state.times[x];
-    const t = Math.round((x - state.padding) / state.timeScale); // 计算时间点
-    console.log(t);
+    const time = state.times[x]; // 计算时间点
 
     info += `时间: ${time}\n`;
     for (let i = 0; i < state.channelCount; i++) {
-      info += `${state.iegmNames[i]}: ${state.iegmData[i][t].toFixed(2)}\n`;
+      info += `${state.iegmNames[i]}: ${state.iegmData[i][x].toFixed(2)}\n`;
     }
   } else if (state.verticalLines.length === 2) {
     const x1 = finallyVerticalLines.value[0];
@@ -355,15 +366,9 @@ const showData = (mouseX, mouseY) => {
     const time1 = state.times[x1];
     const time2 = state.times[x2];
     console.log(x1, x2);
-    const t1 = Math.round((x1 - state.padding) / state.timeScale);
-    const t2 = Math.round((x2 - state.padding) / state.timeScale);
-    console.log(t1, t2);
     info += `时间范围: ${time1} 到 ${time2}\n`;
     for (let i = 0; i < state.channelCount; i++) {
-      const values = state.iegmData[i].slice(
-        t2 + 1 > t1 ? t1 : t2 + 1,
-        t2 + 1 > t1 ? t2 + 1 : t1
-      );
+      const values = state.iegmData[i].slice(x1, x2 + 1);
       const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(
         2
       );
@@ -431,6 +436,8 @@ const showClickInfos = (x, y) => {
   state.lastClick = { channel, time };
 };
 
+const emits = defineEmits(["updateClickResult"]);
+
 // 点击事件处理
 const canvasClick = (event) => {
   if (state.isDraggingChannel) {
@@ -445,6 +452,13 @@ const canvasClick = (event) => {
     return;
 
   showClickInfos(mouseX, mouseY);
+  const channelIndex = state.iegmNames.indexOf(state.lastClick.channel);
+  const channelData = state.iegmData[channelIndex][mouseX];
+  const clickDatas = {
+    channel: state.lastClick.channel,
+    data: channelData,
+  };
+  emits("updateClickResult", clickDatas);
 
   // 添加或替换竖线
   if (state.isFirstLine) {
@@ -549,6 +563,54 @@ clearBtn?.addEventListener("click", () => {
   drawCanvas();
 });
 
+// 生成模拟数据
+const generateData = () => {
+  let data: any = [];
+  const channels = state.iegmNames; // 12 个通道
+  const minutes = state.times; // 时间数组
+  for (let i = 0; i < channels.length; i++) {
+    const row = {
+      导联: channels[i],
+    };
+    for (let j = 0; j < minutes.length; j++) {
+      row[minutes[j]] = state.iegmData[i][j]; // 生成随机数据
+    }
+    console.log(row, "row");
+    data.push(row);
+  }
+
+  return data;
+};
+
+// 添加表头
+const addHeader = (worksheet, header) => {
+  const headerRange = XLSX.utils.decode_range(worksheet["!ref"]); // 获取当前工作表范围
+  XLSX.utils.sheet_add_aoa(worksheet, [header], { origin: -1 }); // 在顶部插入表头
+  worksheet["!ref"] = XLSX.utils.encode_range({
+    s: { r: headerRange.s.r - 1, c: headerRange.s.c }, // 调整范围
+    e: headerRange.e,
+  });
+};
+
+// 将数据保存为 Excel 文件
+const saveExcel = (filename) => {
+  const data = generateData();
+
+  console.log(data);
+  // 将数据转换为工作表
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  // 添加表头
+  // try {
+  //   addHeader(worksheet, state.iegmNames);
+  // } catch (error) {
+  //   console.log(error);
+  // }
+  // 创建工作簿并添加工作表
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+  XLSX.writeFile(workbook, filename);
+};
+
 const init = ({ times, currentTime, leads }) => {
   console.log(times, currentTime, leads);
   ctx.value = canvasRef.value?.getContext("2d");
@@ -582,6 +644,7 @@ const init = ({ times, currentTime, leads }) => {
 defineExpose({
   init,
   getClickTime,
+  saveExcel,
 });
 </script>
 
